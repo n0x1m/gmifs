@@ -7,12 +7,14 @@ server? Because it's educational and that's the spirit of the protocol.
 
 Features
 - zero conf
-- one server/file directory per instance for simplicity
+- zero dependencies (pure go, standard library only)
+- only modern tls ciphers (from Mozilla's [TLS ciphers recommendation](https://statics.tls.security.mozilla.org/server-side-tls-conf.json))
+- concurrent request limiter
 
 This tool is used alongside the markdown to gemtext converter
 [md2gmi](https://github.com/n0x1m/md2gmi).
 
-Generate a server certificate
+Generate a self-signed server certificate with openssl:
 
 ```bash
 openssl req -x509 -newkey rsa:4096 -keyout key.rsa -out cert.pem \
