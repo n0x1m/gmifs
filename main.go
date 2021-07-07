@@ -63,11 +63,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	mux := gemini.NewMux()
+	mux.Use(logger)
+	mux.Handle(gemini.HandlerFunc(fileserver(root)))
+
 	server := &gemini.Server{
 		Addr:         addr,
 		Hostname:     host,
 		TLSConfig:    gemini.TLSConfig(host, cert),
-		Handler:      gemini.HandlerFunc(fileserver(root)),
+		Handler:      mux,
 		MaxOpenConns: maxconns,
 		ReadTimeout:  time.Duration(timeout) * time.Second,
 	}
@@ -104,6 +108,13 @@ func main() {
 			}
 		}()
 	*/
+}
+
+func logger(next gemini.Handler) gemini.Handler {
+	fn := func(w io.Writer, r *gemini.Request) {
+		log.Println(r.URL)
+	}
+	return gemini.HandlerFunc(fn)
 }
 
 func fileserver(root string) func(w io.Writer, r *gemini.Request) {

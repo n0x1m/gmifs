@@ -130,7 +130,6 @@ func (s *Server) handleConnection(conn net.Conn, sem chan struct{}) {
 	go requestChannel(conn, reqChan)
 	select {
 	case header := <-reqChan:
-		fmt.Println("serve")
 		if header.err != nil {
 			s.handleRequestError(conn, header)
 			return
