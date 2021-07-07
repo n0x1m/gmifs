@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/n0x1m/gmifs/gemini"
 )
 
 const (
@@ -50,26 +52,55 @@ const (
 	DefaultMaxConns = 256
 	DefaultTimeout  = 10
 	DefaultRootPath = "/var/www/htdocs/gemini"
-	DefaultCertPath = "cert.pem"
-	DefaultKeyPath  = "key.rsa"
+	DefaultCN       = ""
+	DefaultCertPath = ""
+	DefaultKeyPath  = ""
 )
 
 func main() {
-	var address, root, crt, key string
+	var address, root, crt, key, cn string
 	var maxconns, timeout int
 
 	flag.StringVar(&address, "address", DefaultAddress, "address to listen on. E.g. 127.0.0.1:1965")
 	flag.IntVar(&maxconns, "max-conns", DefaultMaxConns, "maximum number of concurrently open connections")
 	flag.IntVar(&timeout, "timeout", DefaultTimeout, "connection timeout in seconds")
 	flag.StringVar(&root, "root", DefaultRootPath, "server root directory to serve from")
+	flag.StringVar(&cn, "cn", DefaultCN, "x509 Common Name when using temporary self-signed certs")
 	flag.StringVar(&crt, "cert", DefaultCertPath, "TLS chain of one or more certificates")
 	flag.StringVar(&key, "key", DefaultKeyPath, "TLS private key")
 	flag.Parse()
 
-	cert, err := tls.LoadX509KeyPair(crt, key)
-	if err != nil {
-		log.Fatalf("server: loadkeys: %s", err)
+	var err error
+	var cert tls.Certificate
+	if crt != "" && key != "" {
+		log.Println("loading certificate from", crt)
+		cert, err = tls.LoadX509KeyPair(crt, key)
+		if err != nil {
+			log.Fatalf("server: loadkeys: %s", err)
+		}
+	} else if cn != "" {
+		log.Println("generating self-signed temporary certificate")
+		cert, err = gemini.GenX509KeyPair(cn)
+		if err != nil {
+			log.Fatalf("server: loadkeys: %s", err)
+		}
+	} else {
+		fmt.Fprintf(os.Stderr, "need either a keypair with cert and key or a common name (hostname)\n")
+		fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
+		flag.PrintDefaults()
+		os.Exit(1)
 	}
+
+	/*
+		hup := make(chan os.Signal, 1)
+		signal.Notify(hup, syscall.SIGHUP)
+		go func() {
+			for {
+				<-hup
+			}
+		}()
+	*/
+
 	config := &tls.Config{
 		Certificates:             []tls.Certificate{cert},
 		Rand:                     rand.Reader,
@@ -109,7 +140,9 @@ func main() {
 					var gmierr *GmiError
 					if err != nil && errors.As(err, &gmierr) {
 						if gmierr.Code == RedirectPermanent || gmierr.Code == RedirectTemporary {
-							sendError(conn, gmierr.Code, err.Error())
+							// error is relative path if redirect
+							redirect := "gemini://" + cn + err.Error()
+							sendError(conn, gmierr.Code, redirect)
 
 							return
 						}
