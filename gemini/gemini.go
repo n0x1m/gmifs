@@ -52,8 +52,13 @@ var (
 )
 
 type Request struct {
-	ctx context.Context
-	URL *url.URL
+	ctx        context.Context
+	URL        *url.URL
+	RemoteAddr string
+
+	// RequestURI is the unmodified request-target of the Request-Line  as sent by the client
+	// to a server. Usually the URL field should be used instead.
+	RequestURI string
 }
 
 type Handler interface {
@@ -135,7 +140,12 @@ func (s *Server) handleConnection(conn net.Conn, sem chan struct{}) {
 			return
 		}
 		ctx := context.Background()
-		r := &Request{ctx: ctx, URL: header.URL}
+		r := &Request{
+			ctx:        ctx,
+			URL:        header.URL,
+			RequestURI: header.rawuri,
+			RemoteAddr: conn.RemoteAddr().String(),
+		}
 		s.Handler.ServeGemini(conn, r)
 	case <-time.After(s.ReadTimeout):
 		WriteHeader(conn, StatusServerUnavailable, "")
@@ -157,48 +167,54 @@ func (s *Server) handleRequestError(conn net.Conn, req request) {
 // conn handler
 
 type request struct {
-	URL *url.URL
-	err error
+	rawuri string
+	URL    *url.URL
+	err    error
 }
 
 func requestChannel(c net.Conn, rsp chan request) {
-	u, err := readHeader(c)
-	rsp <- request{u, err}
+	r, err := readHeader(c)
+	r.err = err
+	rsp <- *r
 }
 
-func readHeader(c net.Conn) (*url.URL, error) {
+func readHeader(c net.Conn) (*request, error) {
+	r := &request{}
 	req, err := bufio.NewReader(c).ReadString('\r')
 	if err != nil {
 		return nil, Error(StatusTemporaryFailure, errors.New("error reading request"))
 	}
+	r.rawuri = req
 
 	requestURL := strings.TrimSpace(req)
 	if requestURL == "" {
-		return nil, Error(StatusBadRequest, errors.New("empty request URL"))
+		return r, Error(StatusBadRequest, errors.New("empty request URL"))
 	} else if !utf8.ValidString(requestURL) {
-		return nil, Error(StatusBadRequest, errors.New("not a valid utf-8 url"))
+		return r, Error(StatusBadRequest, errors.New("not a valid utf-8 url"))
 	} else if len(requestURL) > URLMaxBytes {
-		return nil, Error(StatusBadRequest, ErrHeaderTooLong)
+		return r, Error(StatusBadRequest, ErrHeaderTooLong)
 	}
 
 	parsedURL, err := url.Parse(requestURL)
 	if err != nil {
-		return nil, Error(StatusBadRequest, err)
+		return r, Error(StatusBadRequest, err)
 	}
 
+	r.URL = parsedURL
+
 	if parsedURL.Scheme != "" && parsedURL.Scheme != "gemini" {
-		return nil, Error(StatusProxyRequestRefused, fmt.Errorf("unknown protocol scheme %s", parsedURL.Scheme))
+		return r, Error(StatusProxyRequestRefused, fmt.Errorf("unknown protocol scheme %s", parsedURL.Scheme))
 	} else if parsedURL.Host == "" {
-		return nil, Error(StatusBadRequest, errors.New("empty host"))
+		return r, Error(StatusBadRequest, errors.New("empty host"))
 	}
 
 	if parsedURL.Path == "" {
-		return nil, Error(StatusRedirectPermanent, errors.New("./"+parsedURL.Path))
+		return r, Error(StatusRedirectPermanent, errors.New("./"+parsedURL.Path))
 	} else if parsedURL.Path != path.Clean(parsedURL.Path) {
-		return nil, Error(StatusBadRequest, errors.New("path error"))
+		return r, Error(StatusBadRequest, errors.New("path error"))
 	}
 
-	return parsedURL, nil
+	return r, nil
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
