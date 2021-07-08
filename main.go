@@ -134,15 +134,6 @@ func main() {
 	<-confirm
 	cancel()
 
-	/*
-		hup := make(chan os.Signal, 1)
-		signal.Notify(hup, syscall.SIGHUP)
-		go func() {
-			for {
-				<-hup
-			}
-		}()
-	*/
 }
 
 func logger(log *log.Logger) func(next gemini.Handler) gemini.Handler {

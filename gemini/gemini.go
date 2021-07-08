@@ -11,8 +11,11 @@ import (
 	"log"
 	"net"
 	"net/url"
+	"os"
+	"os/signal"
 	"path"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 )
@@ -113,39 +116,51 @@ func (s *Server) logf(format string, v ...interface{}) {
 }
 
 func (s *Server) ListenAndServe() error {
-	s.closed = make(chan struct{})
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	go func() {
+		for {
+			<-hup
+			if s.listener != nil {
+				// TODO: reload TLSConfig
+				s.listener.Close()
+			}
+		}
+	}()
 
 	// outer for loop, if listener closes we will restart it. This may be useful if we switch out
 	// TLSConfig.
-	//for {
-	var err error
-	s.listener, err = tls.Listen("tcp", s.Addr, s.TLSConfig)
-	if err != nil {
-		return fmt.Errorf("gemini server listen: %w", err)
-	}
-
-	queue := make(chan net.Conn, s.MaxOpenConns)
-	go s.handleConnectionQueue(queue)
-
 	for {
-		conn, err := s.listener.Accept()
+		s.closed = make(chan struct{})
+		var err error
+		s.listener, err = tls.Listen("tcp", s.Addr, s.TLSConfig)
 		if err != nil {
-			s.logf("server accept error: %v", err)
-			break
+			return fmt.Errorf("gemini server listen: %w", err)
 		}
-		queue <- conn
 
-		// un-stuck call after shutdown will trigger a drop here
+		queue := make(chan net.Conn, s.MaxOpenConns)
+		go s.handleConnectionQueue(queue)
+
+		s.logf("Accepting new connections on %v", s.listener.Addr())
+		for {
+			conn, err := s.listener.Accept()
+			if err != nil {
+				s.logf("server accept error: %v", err)
+				break
+			}
+			queue <- conn
+
+			// un-stuck call after shutdown will trigger a drop here
+			if s.shutdown {
+				break
+			}
+		}
+		// closed confirms the accept call stopped
+		close(s.closed)
 		if s.shutdown {
 			break
 		}
 	}
-	// closed confirms the accept call stopped
-	close(s.closed)
-	//if s.shutdown {
-	//	return nil
-	//}
-	//}
 	s.log("closing listener gracefully")
 	return s.listener.Close()
 }
