@@ -83,10 +83,27 @@ type Server struct {
 	// Hostname or common name of the server. This is used for absolute redirects.
 	Hostname string
 
+	// Logger enables logging of the gemini server for debugging purposes.
+	Logger *log.Logger
+
 	TLSConfig    *tls.Config
 	Handler      Handler // handler to invoke
 	ReadTimeout  time.Duration
 	MaxOpenConns int
+}
+
+func (s *Server) log(v string) {
+	if s.Logger == nil {
+		return
+	}
+	s.Logger.Println("DEBUG " + v)
+}
+
+func (s *Server) logf(format string, v ...interface{}) {
+	if s.Logger == nil {
+		return
+	}
+	s.log(fmt.Sprintf(format, v...))
 }
 
 func (s *Server) ListenAndServe() error {
@@ -104,7 +121,7 @@ func (s *Server) ListenAndServe() error {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Printf("server: accept: %s", err)
+			s.logf("server accept error: %v", err)
 			break
 		}
 		queue <- conn
@@ -148,12 +165,14 @@ func (s *Server) handleConnection(conn net.Conn, sem chan struct{}) {
 		}
 		s.Handler.ServeGemini(conn, r)
 	case <-time.After(s.ReadTimeout):
+		s.logf("server read timeout, request queue length %v/%v", len(sem), s.MaxOpenConns)
 		WriteHeader(conn, StatusServerUnavailable, "")
 	}
 }
 
 func (s *Server) handleRequestError(conn net.Conn, req request) {
-	// TODO: log err
+	s.logf("server error: '%s' %v", strings.TrimSpace(req.rawuri), req.err)
+
 	var gmierr *GmiError
 	if errors.As(req.err, &gmierr) {
 		WriteHeader(conn, gmierr.Code, gmierr.Error())

@@ -11,6 +11,7 @@ import (
 	"mime"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -30,8 +31,9 @@ const (
 )
 
 func main() {
-	var addr, root, crt, key, host string
+	var addr, root, crt, key, host, logs string
 	var maxconns, timeout int
+	var debug bool
 
 	flag.StringVar(&addr, "addr", defaultAddress, "address to listen on. E.g. 127.0.0.1:1965")
 	flag.IntVar(&maxconns, "max-conns", defaultMaxConns, "maximum number of concurrently open connections")
@@ -40,7 +42,38 @@ func main() {
 	flag.StringVar(&host, "host", defaultHost, "hostname / x509 Common Name when using temporary self-signed certs")
 	flag.StringVar(&crt, "cert", defaultCertPath, "TLS chain of one or more certificates")
 	flag.StringVar(&key, "key", defaultKeyPath, "TLS private key")
+	flag.StringVar(&logs, "logs", "", "directory for file based logging")
+	flag.BoolVar(&debug, "debug", false, "enable verbose logging of the gemini server")
 	flag.Parse()
+
+	// TODO: rotate on SIGHUP
+	flogger := log.New(os.Stdout, "", log.LUTC|log.Ldate|log.Ltime)
+	if logs != "" {
+		logpath := filepath.Join(logs, "access.log")
+		accessLog, err := os.OpenFile(logpath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer accessLog.Close()
+
+		flogger.SetOutput(accessLog)
+	}
+
+	var dlogger *log.Logger
+	if debug {
+		dlogger = log.New(os.Stdout, "", log.LUTC|log.Ldate|log.Ltime)
+
+		if logs != "" {
+			logpath := filepath.Join(logs, "debug.log")
+			debugLog, err := os.OpenFile(logpath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+			if err != nil {
+				log.Fatal(err)
+			}
+			defer debugLog.Close()
+
+			dlogger.SetOutput(debugLog)
+		}
+	}
 
 	var err error
 	var cert tls.Certificate
@@ -65,7 +98,7 @@ func main() {
 	}
 
 	mux := gemini.NewMux()
-	mux.Use(logger)
+	mux.Use(logger(flogger))
 	mux.Handle(gemini.HandlerFunc(fileserver(root)))
 
 	server := &gemini.Server{
@@ -75,6 +108,7 @@ func main() {
 		Handler:      mux,
 		MaxOpenConns: maxconns,
 		ReadTimeout:  time.Duration(timeout) * time.Second,
+		Logger:       dlogger,
 	}
 
 	//confirm := make(chan struct{}, 1)
@@ -111,23 +145,25 @@ func main() {
 	*/
 }
 
-func logger(next gemini.Handler) gemini.Handler {
-	fn := func(w io.Writer, r *gemini.Request) {
-		t := time.Now()
+func logger(log *log.Logger) func(next gemini.Handler) gemini.Handler {
+	return func(next gemini.Handler) gemini.Handler {
+		fn := func(w io.Writer, r *gemini.Request) {
+			t := time.Now()
 
-		next.ServeGemini(w, r)
+			next.ServeGemini(w, r)
 
-		ip := strings.Split(r.RemoteAddr, ":")[0]
-		hostname, _ := os.Hostname()
-		fmt.Printf("%s %s - - [%s] \"%s\" - %v\n",
-			hostname,
-			ip,
-			t.Format("02/Jan/2006:15:04:05 -0700"),
-			r.URL.Path,
-			time.Since(t),
-		)
+			ip := strings.Split(r.RemoteAddr, ":")[0]
+			hostname, _ := os.Hostname()
+			fmt.Printf("%s %s - - [%s] \"%s\" - %v\n",
+				hostname,
+				ip,
+				t.Format("02/Jan/2006:15:04:05 -0700"),
+				r.URL.Path,
+				time.Since(t),
+			)
+		}
+		return gemini.HandlerFunc(fn)
 	}
-	return gemini.HandlerFunc(fn)
 }
 
 func fileserver(root string) func(w io.Writer, r *gemini.Request) {
