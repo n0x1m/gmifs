@@ -105,7 +105,7 @@ func (s *Server) log(v string) {
 	if s.Logger == nil {
 		return
 	}
-	s.Logger.Println("DEBUG " + v)
+	s.Logger.Println("gmifs: " + v)
 }
 
 func (s *Server) logf(format string, v ...interface{}) {
@@ -281,6 +281,9 @@ func readHeader(c net.Conn) (*request, error) {
 	return r, nil
 }
 
+// Shutdown uses the self-pipe trick to gracefully allow the accept handler to exit and the listener
+// to close within the given context deadline. If unsuccessful the listener is forcefully
+// terminated.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.log("shutdown request received")
 	t := time.Now()

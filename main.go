@@ -14,10 +14,10 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/n0x1m/gmifs/gemini"
+	"github.com/n0x1m/gmifs/middleware"
 )
 
 const (
@@ -31,6 +31,8 @@ const (
 
 	shutdownTimeout = 10 * time.Second
 )
+
+var ErrDirWithoutIndex = errors.New("path is directory without index.gmi")
 
 func main() {
 	var addr, root, crt, key, host, logs string
@@ -100,8 +102,8 @@ func main() {
 	}
 
 	mux := gemini.NewMux()
-	mux.Use(logger(mlogger))
-	mux.Handle(gemini.HandlerFunc(fileserver(root)))
+	mux.Use(middleware.Logger(mlogger))
+	mux.Handle(gemini.HandlerFunc(fileserver(root, true)))
 
 	server := &gemini.Server{
 		Addr:         addr,
@@ -136,31 +138,21 @@ func main() {
 
 }
 
-func logger(log *log.Logger) func(next gemini.Handler) gemini.Handler {
-	return func(next gemini.Handler) gemini.Handler {
-		fn := func(w io.Writer, r *gemini.Request) {
-			t := time.Now()
-
-			next.ServeGemini(w, r)
-
-			ip := strings.Split(r.RemoteAddr, ":")[0]
-			hostname, _ := os.Hostname()
-			fmt.Fprintf(log.Writer(), "%s %s - - [%s] \"%s\" - %v\n",
-				hostname,
-				ip,
-				t.Format("02/Jan/2006:15:04:05 -0700"),
-				r.URL.Path,
-				time.Since(t),
-			)
-		}
-		return gemini.HandlerFunc(fn)
-	}
-}
-
-func fileserver(root string) func(w io.Writer, r *gemini.Request) {
+func fileserver(root string, dirlisting bool) func(w io.Writer, r *gemini.Request) {
 	return func(w io.Writer, r *gemini.Request) {
 		fullpath, err := fullPath(root, r.URL.Path)
 		if err != nil {
+			if err == ErrDirWithoutIndex && dirlisting {
+				body, mimeType, err := listDirectory(fullpath, r.URL.Path)
+				if err != nil {
+					gemini.WriteHeader(w, gemini.StatusNotFound, err.Error())
+					return
+				}
+
+				gemini.WriteHeader(w, gemini.StatusSuccess, mimeType)
+				gemini.Write(w, body)
+				return
+			}
 			gemini.WriteHeader(w, gemini.StatusNotFound, err.Error())
 			return
 		}
@@ -177,7 +169,7 @@ func fileserver(root string) func(w io.Writer, r *gemini.Request) {
 
 func fullPath(root, requestPath string) (string, error) {
 	if requestPath == "/" || requestPath == "." {
-		return path.Join(root, gemini.IndexFile), nil
+		//return path.Join(root, gemini.IndexFile), nil
 	}
 
 	fullpath := path.Join(root, requestPath)
@@ -190,7 +182,7 @@ func fullPath(root, requestPath string) (string, error) {
 	if pathInfo.IsDir() {
 		subDirIndex := path.Join(fullpath, gemini.IndexFile)
 		if _, err := os.Stat(subDirIndex); os.IsNotExist(err) {
-			return "", fmt.Errorf("path: %w", err)
+			return fullpath, ErrDirWithoutIndex
 		}
 
 		fullpath = subDirIndex
@@ -222,4 +214,29 @@ func getMimeType(fullpath string) string {
 		return mime.TypeByExtension(ext)
 	}
 	return gemini.MimeType
+}
+
+func listDirectory(fullpath, relpath string) ([]byte, string, error) {
+	files, err := ioutil.ReadDir(fullpath)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var out []byte
+	parent := filepath.Dir(relpath)
+	if relpath != "/" {
+		out = append(out, []byte(fmt.Sprintf("Index of %s/\n\n", relpath))...)
+		out = append(out, []byte(fmt.Sprintf("=> %s ..\n", parent))...)
+	} else {
+		out = append(out, []byte(fmt.Sprintf("Index of %s\n\n", relpath))...)
+	}
+	for _, f := range files {
+		if relpath == "/" {
+			out = append(out, []byte(fmt.Sprintf("=> %s\n", f.Name()))...)
+		} else {
+			out = append(out, []byte(fmt.Sprintf("=> %s/%s %s\n", relpath, f.Name(), f.Name()))...)
+		}
+	}
+
+	return out, gemini.MimeType, nil
 }
