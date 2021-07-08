@@ -37,7 +37,7 @@ var ErrDirWithoutIndex = errors.New("path is directory without index.gmi")
 func main() {
 	var addr, root, crt, key, host, logs string
 	var maxconns, timeout int
-	var debug bool
+	var debug, autoindex bool
 
 	flag.StringVar(&addr, "addr", defaultAddress, "address to listen on. E.g. 127.0.0.1:1965")
 	flag.IntVar(&maxconns, "max-conns", defaultMaxConns, "maximum number of concurrently open connections")
@@ -48,6 +48,7 @@ func main() {
 	flag.StringVar(&key, "key", defaultKeyPath, "TLS private key")
 	flag.StringVar(&logs, "logs", "", "directory for file based logging")
 	flag.BoolVar(&debug, "debug", false, "enable verbose logging of the gemini server")
+	flag.BoolVar(&autoindex, "autoindex", false, "enables or disables the directory listing output")
 	flag.Parse()
 
 	// TODO: rotate on SIGHUP
@@ -168,10 +169,6 @@ func fileserver(root string, dirlisting bool) func(w io.Writer, r *gemini.Reques
 }
 
 func fullPath(root, requestPath string) (string, error) {
-	if requestPath == "/" || requestPath == "." {
-		//return path.Join(root, gemini.IndexFile), nil
-	}
-
 	fullpath := path.Join(root, requestPath)
 
 	pathInfo, err := os.Stat(fullpath)
@@ -194,7 +191,7 @@ func fullPath(root, requestPath string) (string, error) {
 func readFile(filepath string) ([]byte, string, error) {
 	mimeType := getMimeType(filepath)
 	if mimeType == "" {
-		return nil, "", errors.New("unsupported")
+		return nil, "", errors.New("disabled/unsupported file type")
 	}
 
 	file, err := os.Open(filepath)
