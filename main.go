@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"flag"
@@ -10,6 +11,7 @@ import (
 	"log"
 	"mime"
 	"os"
+	"os/signal"
 	"path"
 	"path/filepath"
 	"strings"
@@ -47,7 +49,7 @@ func main() {
 	flag.Parse()
 
 	// TODO: rotate on SIGHUP
-	flogger := log.New(os.Stdout, "", log.LUTC|log.Ldate|log.Ltime)
+	mlogger := log.New(os.Stdout, "", log.LUTC|log.Ldate|log.Ltime)
 	if logs != "" {
 		logpath := filepath.Join(logs, "access.log")
 		accessLog, err := os.OpenFile(logpath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
@@ -56,7 +58,7 @@ func main() {
 		}
 		defer accessLog.Close()
 
-		flogger.SetOutput(accessLog)
+		mlogger.SetOutput(accessLog)
 	}
 
 	var dlogger *log.Logger
@@ -98,7 +100,7 @@ func main() {
 	}
 
 	mux := gemini.NewMux()
-	mux.Use(logger(flogger))
+	mux.Use(logger(mlogger))
 	mux.Handle(gemini.HandlerFunc(fileserver(root)))
 
 	server := &gemini.Server{
@@ -111,29 +113,27 @@ func main() {
 		Logger:       dlogger,
 	}
 
-	//confirm := make(chan struct{}, 1)
-	//go func() {
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, gemini.ErrServerClosed) {
-		log.Fatal("ListenAndServe terminated unexpectedly")
+	confirm := make(chan struct{}, 1)
+	go func() {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, gemini.ErrServerClosed) {
+			log.Fatalf("ListenAndServe terminated unexpectedly: %v", err)
+		}
+		close(confirm)
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt)
+	<-stop
+
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	if err := server.Shutdown(ctx); err != nil {
+		cancel()
+		log.Fatal("ListenAndServe shutdown")
 	}
 
-	//	close(confirm)
-	//}()
+	<-confirm
+	cancel()
 
-	/*
-		stop := make(chan os.Signal, 1)
-		signal.Notify(stop, os.Interrupt)
-		<-stop
-
-		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-		if err := server.Shutdown(ctx); err != nil {
-			cancel()
-			log.Fatal("ListenAndServe shutdown")
-		}
-
-		<-confirm
-		cancel()
-	*/
 	/*
 		hup := make(chan os.Signal, 1)
 		signal.Notify(hup, syscall.SIGHUP)
@@ -154,7 +154,7 @@ func logger(log *log.Logger) func(next gemini.Handler) gemini.Handler {
 
 			ip := strings.Split(r.RemoteAddr, ":")[0]
 			hostname, _ := os.Hostname()
-			fmt.Printf("%s %s - - [%s] \"%s\" - %v\n",
+			fmt.Fprintf(log.Writer(), "%s %s - - [%s] \"%s\" - %v\n",
 				hostname,
 				ip,
 				t.Format("02/Jan/2006:15:04:05 -0700"),
