@@ -11,7 +11,7 @@ import (
 )
 
 // GenX509KeyPair generates a TLS keypair with one week validity.
-func GenX509KeyPair(host string) (tls.Certificate, error) {
+func GenX509KeyPair(host string, daysvalid int) (tls.Certificate, error) {
 	now := time.Now()
 	template := &x509.Certificate{
 		SerialNumber: big.NewInt(now.Unix()),
@@ -20,7 +20,7 @@ func GenX509KeyPair(host string) (tls.Certificate, error) {
 			Organization: []string{host},
 		},
 		NotBefore:             now,
-		NotAfter:              now.AddDate(0, 0, 7),
+		NotAfter:              now.AddDate(0, 0, daysvalid),
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},

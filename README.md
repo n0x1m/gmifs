@@ -6,13 +6,12 @@ protocol](https://gemini.circumlunar.space/docs/specification.gmi). Why built ye
 server? Because it's educational and that's the spirit of the protocol.
 
 Features
-- **zero conf**, if no certificate is available, gmifs can generates self-signed certs
+- **zero conf**, if no certificate is available, gmifs generates a self-signed cert
 - **zero dependencies**, Go standard library only
-- directory listing support
-- only modern tls ciphers (from [Mozilla's TLS ciphers recommendations](https://statics.tls.security.mozilla.org/server-side-tls-conf.json))
-- concurrent requests limiter
-- reloads ssl certs and flushes/reopens log files on SIGHUP
-- single file gemini implementation, focus on simplicity, no bells and whistles
+- directory listing support `-autoindex`
+- reloads ssl certs and reopens log files on SIGHUP, e.g. after Let's Encrypt renewal
+- KISS, single file gemini implementation, handler func in main
+- modern tls ciphers (from [Mozilla's TLS ciphers recommendations](https://statics.tls.security.mozilla.org/server-side-tls-conf.json))
 
 This tool is used alongside the markdown to gemtext converter
 [md2gmi](https://github.com/n0x1m/md2gmi).

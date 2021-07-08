@@ -27,7 +27,8 @@ const (
 	defaultCertPath = ""
 	defaultKeyPath  = ""
 
-	shutdownTimeout = 10 * time.Second
+	autoCertDaysValid = 7
+	shutdownTimeout   = 10 * time.Second
 )
 
 func main() {
@@ -61,20 +62,6 @@ func main() {
 		}
 	}
 
-	var cert tls.Certificate
-	if crt != "" && key != "" {
-		log.Println("loading certificate from", crt)
-		cert, err = tls.LoadX509KeyPair(crt, key)
-		if err != nil {
-			log.Fatalf("server: loadkeys: %s", err)
-		}
-	} else if host != "" {
-		log.Println("generating self-signed temporary certificate")
-		cert, err = gemini.GenX509KeyPair(host)
-		if err != nil {
-			log.Fatalf("server: loadkeys: %s", err)
-		}
-	}
 	if host == "" {
 		fmt.Fprintf(os.Stderr, "a keypair with cert and key or at least a common name (hostname) is required for sni\n")
 		fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
@@ -84,16 +71,16 @@ func main() {
 
 	mux := gemini.NewMux()
 	mux.Use(middleware.Logger(flogger))
-	mux.Handle(gemini.HandlerFunc(fileserver.Serve(root, true)))
+	mux.Handle(gemini.HandlerFunc(fileserver.Serve(root, autoindex)))
 
 	server := &gemini.Server{
-		Addr:         addr,
-		Hostname:     host,
-		TLSConfig:    gemini.TLSConfig(host, cert),
-		Handler:      mux,
-		MaxOpenConns: maxconns,
-		ReadTimeout:  time.Duration(timeout) * time.Second,
-		Logger:       dlogger,
+		Addr:            addr,
+		Hostname:        host,
+		TLSConfigLoader: setupCertificate(crt, key, host),
+		Handler:         mux,
+		MaxOpenConns:    maxconns,
+		ReadTimeout:     time.Duration(timeout) * time.Second,
+		Logger:          dlogger,
 	}
 
 	confirm := make(chan struct{}, 1)
@@ -116,6 +103,25 @@ func main() {
 
 	<-confirm
 	cancel()
+}
+
+func setupCertificate(crt, key, host string) func() (*tls.Config, error) {
+	return func() (*tls.Config, error) {
+		if crt != "" && key != "" {
+			cert, err := tls.LoadX509KeyPair(crt, key)
+			if err != nil {
+				return nil, err
+			}
+			return gemini.TLSConfig(host, cert), nil
+		}
+
+		log.Println("generating self-signed temporary certificate")
+		cert, err := gemini.GenX509KeyPair(host, autoCertDaysValid)
+		if err != nil {
+			return nil, err
+		}
+		return gemini.TLSConfig(host, cert), nil
+	}
 }
 
 func setupLogger(dir, filename string) (*log.Logger, error) {

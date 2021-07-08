@@ -90,7 +90,9 @@ type Server struct {
 	// Logger enables logging of the gemini server for debugging purposes.
 	Logger *log.Logger
 
-	TLSConfig    *tls.Config
+	TLSConfig       *tls.Config
+	TLSConfigLoader func() (*tls.Config, error)
+
 	Handler      Handler // handler to invoke
 	ReadTimeout  time.Duration
 	MaxOpenConns int
@@ -115,14 +117,30 @@ func (s *Server) logf(format string, v ...interface{}) {
 	s.log(fmt.Sprintf(format, v...))
 }
 
+func (s *Server) loadTLS() (err error) {
+	s.TLSConfig, err = s.TLSConfigLoader()
+	return err
+}
+
 func (s *Server) ListenAndServe() error {
+	err := s.loadTLS()
+	if err != nil {
+		return err
+	}
+
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
 	go func() {
 		for {
 			<-hup
+			s.log("reloading certificate")
 			if s.listener != nil {
-				// TODO: reload TLSConfig
+				err := s.loadTLS()
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "critical: failed to load tls certs: %v", err)
+					os.Exit(1)
+				}
+
 				s.listener.Close()
 			}
 		}
