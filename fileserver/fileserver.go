@@ -13,13 +13,16 @@ import (
 	"github.com/n0x1m/gmifs/gemini"
 )
 
-var errDirWithoutIndexFile = errors.New("path without index.gmi not allowed")
+var (
+	ErrDirWithoutIndexFile = errors.New("path without index.gmi not allowed")
+	ErrUnsupportedFileType = errors.New("disabled/unsupported file type")
+)
 
 func Serve(root string, autoindex bool) func(w io.Writer, r *gemini.Request) {
 	return func(w io.Writer, r *gemini.Request) {
 		fullpath, err := fullPath(root, r.URL.Path)
 		if err != nil {
-			if err == errDirWithoutIndexFile && autoindex {
+			if errors.Is(err, ErrDirWithoutIndexFile) && autoindex {
 				body, mimeType, err := listDirectory(fullpath, r.URL.Path)
 				if err != nil {
 					gemini.WriteHeader(w, gemini.StatusNotFound, err.Error())
@@ -30,9 +33,11 @@ func Serve(root string, autoindex bool) func(w io.Writer, r *gemini.Request) {
 				gemini.Write(w, body)
 				return
 			}
+
 			gemini.WriteHeader(w, gemini.StatusNotFound, err.Error())
 			return
 		}
+
 		body, mimeType, err := readFile(fullpath)
 		if err != nil {
 			gemini.WriteHeader(w, gemini.StatusNotFound, err.Error())
@@ -55,7 +60,7 @@ func fullPath(root, requestPath string) (string, error) {
 	if pathInfo.IsDir() {
 		subDirIndex := path.Join(fullpath, gemini.IndexFile)
 		if _, err := os.Stat(subDirIndex); os.IsNotExist(err) {
-			return fullpath, errDirWithoutIndexFile
+			return fullpath, ErrDirWithoutIndexFile
 		}
 
 		fullpath = subDirIndex
@@ -67,7 +72,7 @@ func fullPath(root, requestPath string) (string, error) {
 func readFile(filepath string) ([]byte, string, error) {
 	mimeType := getMimeType(filepath)
 	if mimeType == "" {
-		return nil, "", errors.New("disabled/unsupported file type")
+		return nil, "", ErrUnsupportedFileType
 	}
 
 	file, err := os.Open(filepath)
@@ -92,7 +97,7 @@ func getMimeType(fullpath string) string {
 func listDirectory(fullpath, relpath string) ([]byte, string, error) {
 	files, err := ioutil.ReadDir(fullpath)
 	if err != nil {
-		return nil, "", err
+		return nil, "", fmt.Errorf("list directory: %w", err)
 	}
 
 	var out []byte

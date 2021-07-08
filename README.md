@@ -1,7 +1,7 @@
 # gmifs
 
 Gemini File Server, short gmifs, is intended to be minimal and serve static files. It is used
-to accompany a hugo blog served via httpd and make it available via the [gemini
+to accompany a hugo blog served via httpd and makes it available via the [gemini
 protocol](https://gemini.circumlunar.space/docs/specification.gmi). Why built yet another gemini
 server? Because it's educational and that's the spirit of the protocol.
 

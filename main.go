@@ -84,10 +84,12 @@ func main() {
 	}
 
 	confirm := make(chan struct{}, 1)
+
 	go func() {
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, gemini.ErrServerClosed) {
 			log.Fatalf("ListenAndServe terminated unexpectedly: %v", err)
 		}
+
 		close(confirm)
 	}()
 
@@ -110,7 +112,7 @@ func setupCertificate(crt, key, host string) func() (*tls.Config, error) {
 		if crt != "" && key != "" {
 			cert, err := tls.LoadX509KeyPair(crt, key)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("load x509 keypair: %w", err)
 			}
 			return gemini.TLSConfig(host, cert), nil
 		}
@@ -118,7 +120,7 @@ func setupCertificate(crt, key, host string) func() (*tls.Config, error) {
 		log.Println("generating self-signed temporary certificate")
 		cert, err := gemini.GenX509KeyPair(host, autoCertDaysValid)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("generate x509 keypair: %w", err)
 		}
 		return gemini.TLSConfig(host, cert), nil
 	}
@@ -132,12 +134,13 @@ func setupLogger(dir, filename string) (*log.Logger, error) {
 		logpath := filepath.Join(dir, filename)
 		_, err := setupFileLogging(logger, logpath)
 		if err != nil {
-			log.Fatalf("failed to open log file: %v", err)
+			return logger, fmt.Errorf("setup logger: %w", err)
 		}
 
 		go func(logger *log.Logger, logpath string) {
 			hup := make(chan os.Signal, 1)
 			signal.Notify(hup, syscall.SIGHUP)
+
 			for {
 				<-hup
 				logger.Println("rotating log file after SIGHUP")
@@ -146,16 +149,16 @@ func setupLogger(dir, filename string) (*log.Logger, error) {
 					log.Fatalf("failed to rotate log file: %v", err)
 				}
 			}
-
 		}(logger, logpath)
 	}
+
 	return logger, nil
 }
 
 func setupFileLogging(logger *log.Logger, logpath string) (*os.File, error) {
 	logfile, err := os.OpenFile(logpath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
-		return logfile, err
+		return logfile, fmt.Errorf("log file open: %w", err)
 	}
 
 	logger.SetOutput(logfile)

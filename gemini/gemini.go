@@ -49,10 +49,15 @@ const (
 )
 
 var (
-	ErrServerClosed  = errors.New("gemini: server closed")
-	ErrHeaderTooLong = errors.New("gemini: header too long")
-	ErrMissingFile   = errors.New("gemini: no such file")
-	ErrEmptyRequest  = errors.New("gemini: empty request")
+	ErrServerClosed    = errors.New("gemini: server closed")
+	ErrHeaderTooLong   = errors.New("gemini: header too long")
+	ErrMissingFile     = errors.New("gemini: no such file")
+	ErrEmptyRequest    = errors.New("gemini: empty request")
+	ErrEmptyRequestURL = errors.New("gemini: empty request URL")
+	ErrInvalidPath     = errors.New("gemini: path error")
+	ErrInvalidHost     = errors.New("gemini: empty host")
+	ErrInvalidUtf8     = errors.New("empty request URL")
+	ErrUnknownProtocol = fmt.Errorf("unknown protocol scheme")
 )
 
 type Request struct {
@@ -107,6 +112,7 @@ func (s *Server) log(v string) {
 	if s.Logger == nil {
 		return
 	}
+
 	s.Logger.Println("gmifs: " + v)
 }
 
@@ -114,6 +120,7 @@ func (s *Server) logf(format string, v ...interface{}) {
 	if s.Logger == nil {
 		return
 	}
+
 	s.log(fmt.Sprintf(format, v...))
 }
 
@@ -130,9 +137,11 @@ func (s *Server) ListenAndServe() error {
 
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
+
 	go func() {
 		for {
 			<-hup
+
 			s.log("reloading certificate")
 			if s.listener != nil {
 				err := s.loadTLS()
@@ -150,6 +159,7 @@ func (s *Server) ListenAndServe() error {
 	// TLSConfig.
 	for {
 		s.closed = make(chan struct{})
+
 		var err error
 		s.listener, err = tls.Listen("tcp", s.Addr, s.TLSConfig)
 		if err != nil {
@@ -164,6 +174,7 @@ func (s *Server) ListenAndServe() error {
 			conn, err := s.listener.Accept()
 			if err != nil {
 				s.logf("server accept error: %v", err)
+
 				break
 			}
 			queue <- conn
@@ -173,12 +184,14 @@ func (s *Server) ListenAndServe() error {
 				break
 			}
 		}
+
 		// closed confirms the accept call stopped
 		close(s.closed)
 		if s.shutdown {
 			break
 		}
 	}
+
 	s.log("closing listener gracefully")
 	return s.listener.Close()
 }
@@ -207,6 +220,7 @@ func (s *Server) handleConnection(conn net.Conn, sem chan struct{}) {
 	case header := <-reqChan:
 		if header.err != nil {
 			s.handleRequestError(conn, header)
+
 			return
 		}
 		ctx := context.Background()
@@ -234,6 +248,7 @@ func (s *Server) handleRequestError(conn net.Conn, req request) {
 	var gmierr *GmiError
 	if errors.As(req.err, &gmierr) {
 		WriteHeader(conn, gmierr.Code, gmierr.Error())
+
 		return
 	}
 
@@ -270,11 +285,11 @@ func readHeader(c net.Conn) (*request, error) {
 
 	requestURL := strings.TrimSpace(req)
 	if requestURL == "" {
-		return r, Error(StatusBadRequest, errors.New("empty request URL"))
-	} else if !utf8.ValidString(requestURL) {
-		return r, Error(StatusBadRequest, errors.New("not a valid utf-8 url"))
+		return r, Error(StatusBadRequest, ErrEmptyRequestURL)
 	} else if len(requestURL) > URLMaxBytes {
 		return r, Error(StatusBadRequest, ErrHeaderTooLong)
+	} else if !utf8.ValidString(requestURL) {
+		return r, Error(StatusBadRequest, ErrInvalidUtf8)
 	}
 
 	parsedURL, err := url.Parse(requestURL)
@@ -285,15 +300,16 @@ func readHeader(c net.Conn) (*request, error) {
 	r.URL = parsedURL
 
 	if parsedURL.Scheme != "" && parsedURL.Scheme != "gemini" {
-		return r, Error(StatusProxyRequestRefused, fmt.Errorf("unknown protocol scheme %s", parsedURL.Scheme))
+		return r, Error(StatusProxyRequestRefused, ErrUnknownProtocol)
 	} else if parsedURL.Host == "" {
-		return r, Error(StatusBadRequest, errors.New("empty host"))
+		return r, Error(StatusBadRequest, ErrInvalidHost)
 	}
 
 	if parsedURL.Path == "" {
+		// This error is a redirect path.
 		return r, Error(StatusRedirectPermanent, errors.New("./"+parsedURL.Path))
 	} else if parsedURL.Path != path.Clean(parsedURL.Path) {
-		return r, Error(StatusBadRequest, errors.New("path error"))
+		return r, Error(StatusBadRequest, ErrInvalidPath)
 	}
 
 	return r, nil
@@ -308,11 +324,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	go func() {
 		s.shutdown = true
 		// un-stuck call to self
-		conn, err := tls.Dial("tcp", "localhost:1965", &tls.Config{
-			InsecureSkipVerify: true,
-		})
+		conn, err := tls.Dial("tcp", s.Addr, &tls.Config{InsecureSkipVerify: true})
 		if err != nil {
-			s.logf("un-stuck call error: %v", err)
+			s.logf("un-stuck call failed (ok): %v", err)
+
 			return
 		}
 		defer conn.Close()
@@ -327,20 +342,21 @@ func (s *Server) Shutdown(ctx context.Context) error {
 			s.logf("error while closing listener %v", err)
 		}
 	}
+
 	return nil
 }
 
-func WriteHeader(c io.Writer, code int, message string) {
+func WriteHeader(c io.Writer, code int, message string) (int, error) {
 	// <STATUS><SPACE><META><CR><LF>
-	var header []byte
 	if len(message) == 0 {
-		header = []byte(fmt.Sprintf("%d%s", code, Termination))
+		return c.Write([]byte(fmt.Sprintf("%d%s", code, Termination)))
 	}
-	header = []byte(fmt.Sprintf("%d %s%s", code, message, Termination))
-	c.Write(header)
+
+	return c.Write([]byte(fmt.Sprintf("%d %s%s", code, message, Termination)))
 }
 
-func Write(c io.Writer, body []byte) {
+func Write(c io.Writer, body []byte) (int64, error) {
 	reader := bytes.NewReader(body)
-	io.Copy(c, reader)
+
+	return io.Copy(c, reader)
 }

@@ -6,9 +6,12 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"fmt"
 	"math/big"
 	"time"
 )
+
+const rsaBits = 2048
 
 // GenX509KeyPair generates a TLS keypair with one week validity.
 func GenX509KeyPair(host string, daysvalid int) (tls.Certificate, error) {
@@ -28,15 +31,15 @@ func GenX509KeyPair(host string, daysvalid int) (tls.Certificate, error) {
 			x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
 	}
 
-	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	priv, err := rsa.GenerateKey(rand.Reader, rsaBits)
 	if err != nil {
-		return tls.Certificate{}, err
+		return tls.Certificate{}, fmt.Errorf("generate key: %w", err)
 	}
 
 	cert, err := x509.CreateCertificate(rand.Reader, template, template,
 		priv.Public(), priv)
 	if err != nil {
-		return tls.Certificate{}, err
+		return tls.Certificate{}, fmt.Errorf("create certificate: %w", err)
 	}
 
 	var out tls.Certificate
