@@ -3,14 +3,13 @@ package middleware
 import (
 	"fmt"
 	"log"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/n0x1m/gmifs/gemini"
 )
 
-func Logger(log *log.Logger) func(gemini.Handler) gemini.Handler {
+func Logger(log *log.Logger, prefix string) func(gemini.Handler) gemini.Handler {
 	return func(next gemini.Handler) gemini.Handler {
 		fn := func(w gemini.ResponseWriter, r *gemini.Request) {
 			t := time.Now()
@@ -20,9 +19,8 @@ func Logger(log *log.Logger) func(gemini.Handler) gemini.Handler {
 			ri.Flush()
 
 			ip := strings.Split(r.RemoteAddr, ":")[0]
-			hostname, _ := os.Hostname()
-			fmt.Fprintf(log.Writer(), "%s %s - - [%s] \"%s\" %d - %v\n",
-				hostname,
+			fmt.Fprintf(log.Writer(), "%s%s - - [%s] \"%s\" %d - %v\n",
+				prefix,
 				ip,
 				t.Format("02/Jan/2006:15:04:05 -0700"),
 				r.URL.Path,

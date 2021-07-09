@@ -70,9 +70,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	logprefix := host + " "
+
 	mux := gemini.NewMux()
-	mux.Use(middleware.Logger(flogger))
-	mux.Use(middleware.Cache(64))
+	mux.Use(middleware.Logger(flogger, logprefix))
+	mux.Use(middleware.Cache(cache))
 	mux.Handle(gemini.HandlerFunc(fileserver.Serve(root, autoindex)))
 
 	server := &gemini.Server{
