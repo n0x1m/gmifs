@@ -3,7 +3,6 @@ package fileserver
 import (
 	"errors"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"mime"
 	"os"
@@ -18,34 +17,34 @@ var (
 	ErrUnsupportedFileType = errors.New("disabled/unsupported file type")
 )
 
-func Serve(root string, autoindex bool) func(w io.Writer, r *gemini.Request) {
-	return func(w io.Writer, r *gemini.Request) {
+func Serve(root string, autoindex bool) func(w gemini.ResponseWriter, r *gemini.Request) {
+	return func(w gemini.ResponseWriter, r *gemini.Request) {
 		fullpath, err := fullPath(root, r.URL.Path)
 		if err != nil {
 			if errors.Is(err, ErrDirWithoutIndexFile) && autoindex {
 				body, mimeType, err := listDirectory(fullpath, r.URL.Path)
 				if err != nil {
-					gemini.WriteHeader(w, gemini.StatusNotFound, err.Error())
+					w.WriteHeader(gemini.StatusNotFound, err.Error())
 					return
 				}
 
-				gemini.WriteHeader(w, gemini.StatusSuccess, mimeType)
-				gemini.Write(w, body)
+				w.WriteHeader(gemini.StatusSuccess, mimeType)
+				w.Write(body)
 				return
 			}
 
-			gemini.WriteHeader(w, gemini.StatusNotFound, err.Error())
+			w.WriteHeader(gemini.StatusNotFound, err.Error())
 			return
 		}
 
 		body, mimeType, err := readFile(fullpath)
 		if err != nil {
-			gemini.WriteHeader(w, gemini.StatusNotFound, err.Error())
+			w.WriteHeader(gemini.StatusNotFound, err.Error())
 			return
 		}
 
-		gemini.WriteHeader(w, gemini.StatusSuccess, mimeType)
-		gemini.Write(w, body)
+		w.WriteHeader(gemini.StatusSuccess, mimeType)
+		w.Write(body)
 	}
 }
 
