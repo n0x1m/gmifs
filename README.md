@@ -39,18 +39,21 @@ openssl req -x509 -newkey rsa:4096 -keyout key.rsa -out cert.pem \
      -days 3650 -nodes -subj "/CN=nox.im"
 ```
 
-start gmifs with the keypair
+start gmifs with a key pair
 
 ```
 gmifs -addr 0.0.0.0:1965 -root /var/www/htdocs/nox.im/gemini \
-    -host nox.im -max-conns 1024 -timeout 5 \
+    -host nox.im -max-conns 256 -timeout 5 -cache 256 \
     -logs /var/gemini/logs/ \
     -cert /etc/ssl/nox.im.fullchain.pem \
     -key /etc/ssl/private/nox.im.key
 ```
 
-if need be, send SIGHUP to reload the certificate without downtime
+if need be, send SIGHUP to reload the certificate without cold start, e.g. after a Let's Encrypt
+renewal
 
 ```
 pgrep gmifs | awk '{print "kill -1 " $1}' | sh
 ```
+
+If debug logs are enabled, the certificate rotation will be confirmed.

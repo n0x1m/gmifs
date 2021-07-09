@@ -7,14 +7,11 @@ import (
 // Interceptor is a ResponseWriter wrapper that may be used as buffer.
 //
 // A middleware may pass it to the next handlers ServeGemini method as a drop in replacement for the
-// response writer. After the ServeGemini method is run the middleware may examine what has been
-// written to the Interceptor and decide what to write to the "original" ResponseWriter (that may well be
-// another buffer passed from another middleware).
+// response writer. See the logger and cache middlewares for examples.
 //
-// The downside is the body being written two times and the complete caching of the
-// body in the memory.
+// Note that the body being written two times and the complete caching of the body in the memory.
 type Interceptor struct {
-	// ioWriter is the underlying response writer that is wrapped by Interceptor
+	// ResponseWriter is the underlying response writer that is wrapped by Interceptor
 	w ResponseWriter
 
 	// Interceptor is the underlying io.Writer that buffers the response body
