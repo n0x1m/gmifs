@@ -70,18 +70,23 @@ type Request struct {
 	RequestURI string
 }
 
+type ResponseWriter interface {
+	WriteHeader(code int, message string) (int, error)
+	Write(body []byte) (int, error)
+}
+
 type Handler interface {
-	ServeGemini(io.Writer, *Request)
+	ServeGemini(ResponseWriter, *Request)
 }
 
 // The HandlerFunc type is an adapter to allow the use of
 // ordinary functions as Gemini handlers. If f is a function
 // with the appropriate signature, HandlerFunc(f) is a
 // Handler that calls f.
-type HandlerFunc func(io.Writer, *Request)
+type HandlerFunc func(ResponseWriter, *Request)
 
 // ServeGemini calls f(w, r).
-func (f HandlerFunc) ServeGemini(w io.Writer, r *Request) {
+func (f HandlerFunc) ServeGemini(w ResponseWriter, r *Request) {
 	f(w, r)
 }
 
@@ -214,12 +219,13 @@ func (s *Server) handleConnection(conn net.Conn, sem chan struct{}) {
 		<-sem // release
 	}()
 	reqChan := make(chan request)
+	w := &writer{conn}
 	// push job for which we allocated a sem slot and wait
 	go requestChannel(conn, reqChan)
 	select {
 	case header := <-reqChan:
 		if header.err != nil {
-			s.handleRequestError(conn, header)
+			s.handleRequestError(conn, w, header)
 
 			return
 		}
@@ -230,30 +236,41 @@ func (s *Server) handleConnection(conn net.Conn, sem chan struct{}) {
 			RequestURI: header.rawuri,
 			RemoteAddr: conn.RemoteAddr().String(),
 		}
-		s.Handler.ServeGemini(conn, r)
+		s.Handler.ServeGemini(w, r)
+
 	case <-time.After(s.ReadTimeout):
 		s.logf("server read timeout, request queue length %v/%v", len(sem), s.MaxOpenConns)
-		WriteHeader(conn, StatusServerUnavailable, "")
+		w.WriteHeader(StatusServerUnavailable, "")
 	}
 }
 
-func (s *Server) handleRequestError(conn net.Conn, req request) {
+func (s *Server) handleRequestError(conn net.Conn, w ResponseWriter, req request) {
 	if errors.Is(req.err, ErrEmptyRequest) {
-		// silently ignore empty requests.
+		// in debug mode we log these too
+		s.logf("empty request ignored - %v", conn.RemoteAddr().String())
 		return
 	}
 
-	s.logf("server error: '%s' %v", strings.TrimSpace(req.rawuri), req.err)
-
 	var gmierr *GmiError
 	if errors.As(req.err, &gmierr) {
-		WriteHeader(conn, gmierr.Code, gmierr.Error())
+		// notify if error or redirect
+		if gmierr.Code == StatusRedirectPermanent || gmierr.Code == StatusRedirectTemporary {
+			s.logf("redirect '%s' -> '%s' %d - %s",
+				strings.TrimSpace(req.URL.Path), req.err, gmierr.Code, conn.RemoteAddr().String())
+		} else {
+			s.logf("read request error: '%s' %v %d - %s",
+				strings.TrimSpace(req.rawuri), req.err, gmierr.Code, conn.RemoteAddr().String())
+		}
+
+		w.WriteHeader(gmierr.Code, gmierr.Error())
 
 		return
 	}
 
 	// this path doesn't exist currently.
-	WriteHeader(conn, StatusTemporaryFailure, "internal")
+	s.logf("unexpected error: '%s' %v - %s",
+		strings.TrimSpace(req.rawuri), req.err, conn.RemoteAddr().String())
+	w.WriteHeader(StatusTemporaryFailure, "internal")
 }
 
 // conn handler
@@ -308,8 +325,11 @@ func readHeader(c net.Conn) (*request, error) {
 	if parsedURL.Path == "" {
 		// This error is a redirect path.
 		return r, Error(StatusRedirectPermanent, errors.New("./"+parsedURL.Path))
-	} else if parsedURL.Path != path.Clean(parsedURL.Path) {
-		return r, Error(StatusBadRequest, ErrInvalidPath)
+	} else if cleaned := path.Clean(parsedURL.Path); cleaned != parsedURL.Path {
+		// check valid alternative if unclean for directories
+		if cleaned != strings.TrimRight(parsedURL.Path, "/") {
+			return r, Error(StatusBadRequest, ErrInvalidPath)
+		}
 	}
 
 	return r, nil
@@ -346,17 +366,22 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func WriteHeader(c io.Writer, code int, message string) (int, error) {
-	// <STATUS><SPACE><META><CR><LF>
-	if len(message) == 0 {
-		return c.Write([]byte(fmt.Sprintf("%d%s", code, Termination)))
-	}
-
-	return c.Write([]byte(fmt.Sprintf("%d %s%s", code, message, Termination)))
+type writer struct {
+	w io.Writer
 }
 
-func Write(c io.Writer, body []byte) (int64, error) {
+func (w *writer) WriteHeader(code int, message string) (int, error) {
+	// <STATUS><SPACE><META><CR><LF>
+	if len(message) == 0 {
+		return w.Write([]byte(fmt.Sprintf("%d%s", code, Termination)))
+	}
+
+	return w.Write([]byte(fmt.Sprintf("%d %s%s", code, message, Termination)))
+}
+
+func (w *writer) Write(body []byte) (int, error) {
 	reader := bytes.NewReader(body)
 
-	return io.Copy(c, reader)
+	n, err := io.Copy(w.w, reader)
+	return int(n), err
 }

@@ -1,7 +1,5 @@
 package gemini
 
-import "io"
-
 // Middlewares type is a slice of gemini middleware handlers.
 type Middleware func(Handler) Handler
 
@@ -24,7 +22,7 @@ func (m *Mux) Handle(endpoint Handler) Handler {
 	return m.handler
 }
 
-func (m *Mux) ServeGemini(w io.Writer, r *Request) {
+func (m *Mux) ServeGemini(w ResponseWriter, r *Request) {
 	m.handler.ServeGemini(w, r)
 }
 
