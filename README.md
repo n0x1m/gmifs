@@ -5,11 +5,14 @@ to accompany a hugo blog served via httpd and makes it available via the [gemini
 protocol](https://gemini.circumlunar.space/docs/specification.gmi). Why built yet another gemini
 server? Because it's educational and that's the spirit of the protocol.
 
-Features
+**Features**
 - **zero conf**, if no certificate is available, gmifs generates a self-signed cert
 - **zero dependencies**, Go standard library only
 - directory listing support `-autoindex`
 - reloads ssl certs and reopens log files on SIGHUP, e.g. after Let's Encrypt renewal
+- response writer interceptor and middleware support
+- simple middleware for lru document cache
+- concurrent request limiter
 - KISS, single file gemini implementation, handler func in main
 - modern tls ciphers (from [Mozilla's TLS ciphers recommendations](https://statics.tls.security.mozilla.org/server-side-tls-conf.json))
 

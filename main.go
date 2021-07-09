@@ -33,12 +33,13 @@ const (
 
 func main() {
 	var addr, root, crt, key, host, logs string
-	var maxconns, timeout int
+	var maxconns, timeout, cache int
 	var debug, autoindex bool
 
 	flag.StringVar(&addr, "addr", defaultAddress, "address to listen on. E.g. 127.0.0.1:1965")
 	flag.IntVar(&maxconns, "max-conns", defaultMaxConns, "maximum number of concurrently open connections")
 	flag.IntVar(&timeout, "timeout", defaultTimeout, "connection timeout in seconds")
+	flag.IntVar(&cache, "cache", 0, "simple lru document cache for n items. Disabled when zero.")
 	flag.StringVar(&root, "root", defaultRootPath, "server root directory to serve from")
 	flag.StringVar(&host, "host", defaultHost, "hostname / x509 Common Name when using temporary self-signed certs")
 	flag.StringVar(&crt, "cert", defaultCertPath, "TLS chain of one or more certificates")
@@ -71,6 +72,7 @@ func main() {
 
 	mux := gemini.NewMux()
 	mux.Use(middleware.Logger(flogger))
+	mux.Use(middleware.Cache(64))
 	mux.Handle(gemini.HandlerFunc(fileserver.Serve(root, autoindex)))
 
 	server := &gemini.Server{
