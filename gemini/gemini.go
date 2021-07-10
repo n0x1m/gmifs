@@ -56,8 +56,8 @@ var (
 	ErrEmptyRequestURL = errors.New("gemini: empty request URL")
 	ErrInvalidPath     = errors.New("gemini: path error")
 	ErrInvalidHost     = errors.New("gemini: empty host")
-	ErrInvalidUtf8     = errors.New("empty request URL")
-	ErrUnknownProtocol = fmt.Errorf("unknown protocol scheme")
+	ErrInvalidUtf8     = errors.New("gemini: empty request URL")
+	ErrUnknownProtocol = fmt.Errorf("gemini: unknown protocol scheme")
 )
 
 type Request struct {
@@ -108,9 +108,10 @@ type Server struct {
 	MaxOpenConns int
 
 	// internal
-	listener net.Listener
-	shutdown bool
-	closed   chan struct{}
+	listener       net.Listener
+	shutdown       bool
+	closed         chan struct{}
+	sighupListener chan struct{}
 }
 
 func (s *Server) log(v string) {
@@ -134,18 +135,13 @@ func (s *Server) loadTLS() (err error) {
 	return err
 }
 
-func (s *Server) ListenAndServe() error {
-	err := s.loadTLS()
-	if err != nil {
-		return err
-	}
-
+func (s *Server) reloadTLSConfigOnSighup() {
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
 
-	go func() {
-		for {
-			<-hup
+	for {
+		select {
+		case <-hup:
 
 			s.log("reloading certificate")
 			if s.listener != nil {
@@ -157,8 +153,21 @@ func (s *Server) ListenAndServe() error {
 
 				s.listener.Close()
 			}
+		case <-s.closed:
+			close(s.sighupListener)
+			return
 		}
-	}()
+	}
+}
+
+func (s *Server) ListenAndServe() error {
+	err := s.loadTLS()
+	if err != nil {
+		return err
+	}
+
+	s.sighupListener = make(chan struct{})
+	go s.reloadTLSConfigOnSighup()
 
 	// outer for loop, if listener closes we will restart it. This may be useful if we switch out
 	// TLSConfig.
@@ -166,6 +175,7 @@ func (s *Server) ListenAndServe() error {
 		s.closed = make(chan struct{})
 
 		var err error
+
 		s.listener, err = tls.Listen("tcp", s.Addr, s.TLSConfig)
 		if err != nil {
 			return fmt.Errorf("gemini server listen: %w", err)
@@ -218,8 +228,10 @@ func (s *Server) handleConnection(conn net.Conn, sem chan struct{}) {
 		conn.Close()
 		<-sem // release
 	}()
+
 	reqChan := make(chan request)
 	w := &writer{conn}
+
 	// push job for which we allocated a sem slot and wait
 	go requestChannel(conn, reqChan)
 	select {
@@ -229,6 +241,7 @@ func (s *Server) handleConnection(conn net.Conn, sem chan struct{}) {
 
 			return
 		}
+
 		ctx := context.Background()
 		r := &Request{
 			ctx:        ctx,
@@ -236,6 +249,7 @@ func (s *Server) handleConnection(conn net.Conn, sem chan struct{}) {
 			RequestURI: header.rawuri,
 			RemoteAddr: conn.RemoteAddr().String(),
 		}
+
 		s.Handler.ServeGemini(w, r)
 
 	case <-time.After(s.ReadTimeout):
@@ -283,10 +297,12 @@ type request struct {
 
 func requestChannel(c net.Conn, rsp chan request) {
 	req := &request{}
+
 	r, err := readHeader(c)
 	if r != nil {
 		req = r
 	}
+
 	req.err = err
 	rsp <- *req
 }
@@ -294,6 +310,7 @@ func requestChannel(c net.Conn, rsp chan request) {
 func readHeader(c net.Conn) (*request, error) {
 	req, err := bufio.NewReader(c).ReadString('\r')
 	if err != nil {
+		// not sure this is the right response
 		return nil, Error(StatusTemporaryFailure, ErrEmptyRequest)
 	}
 
@@ -315,19 +332,22 @@ func readHeader(c net.Conn) (*request, error) {
 	}
 
 	r.URL = parsedURL
+	return validateRequest(r)
+}
 
-	if parsedURL.Scheme != "" && parsedURL.Scheme != "gemini" {
+func validateRequest(r *request) (*request, error) {
+	if r.URL.Scheme != "" && r.URL.Scheme != "gemini" {
 		return r, Error(StatusProxyRequestRefused, ErrUnknownProtocol)
-	} else if parsedURL.Host == "" {
+	} else if r.URL.Host == "" {
 		return r, Error(StatusBadRequest, ErrInvalidHost)
 	}
 
-	if parsedURL.Path == "" {
+	if r.URL.Path == "" {
 		// This error is a redirect path.
-		return r, Error(StatusRedirectPermanent, errors.New("./"+parsedURL.Path))
-	} else if cleaned := path.Clean(parsedURL.Path); cleaned != parsedURL.Path {
+		return r, Error(StatusRedirectPermanent, errors.New("./"+r.URL.Path))
+	} else if cleaned := path.Clean(r.URL.Path); cleaned != r.URL.Path {
 		// check valid alternative if unclean for directories
-		if cleaned != strings.TrimRight(parsedURL.Path, "/") {
+		if cleaned != strings.TrimRight(r.URL.Path, "/") {
 			return r, Error(StatusBadRequest, ErrInvalidPath)
 		}
 	}
@@ -362,6 +382,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 			s.logf("error while closing listener %v", err)
 		}
 	}
+	// confirm sighup listener for cert reloading exited
+	<-s.sighupListener
 
 	return nil
 }
@@ -381,7 +403,6 @@ func (w *writer) WriteHeader(code int, message string) (int, error) {
 
 func (w *writer) Write(body []byte) (int, error) {
 	reader := bytes.NewReader(body)
-
 	n, err := io.Copy(w.w, reader)
 	return int(n), err
 }

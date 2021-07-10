@@ -11,7 +11,7 @@ server? Because it's educational and that's the spirit of the protocol.
 - directory listing support through the auto index flag
 - reloads ssl certs and reopens log files on SIGHUP, e.g. after Let's Encrypt renewal
 - response writer interceptor and middleware support
-- simple middleware for lru document cache
+- simple middleware for fifo document cache
 - concurrent request limiter
 - KISS, single file gemini implementation, handler func in main
 - modern tls ciphers (from [Mozilla's TLS ciphers recommendations](https://statics.tls.security.mozilla.org/server-side-tls-conf.json))
@@ -26,7 +26,7 @@ Currently only supported through the go toolchain, either check out the repot an
 go install github.com/n0x1m/gmifs
 ```
 
-### Dev & Tests
+### Development
 
 Test it locally by serving e.g. a `./public` directory on localhost with directory listing turned on
 
@@ -68,15 +68,15 @@ If debug logs are enabled, the certificate rotation will be confirmed.
 ### Supported flags
 
 ```
-Usage of ./gmifs:
+sage of ./gmifs:
   -addr string
         address to listen on, e.g. 127.0.0.1:1965 (default ":1965")
   -autocertvalidity int
-        valid days when using a gmifs auto provisioned self-signed certificate (default 1)
+        valid days when using a gmifs provisioned certificate (default 1)
   -autoindex
         enables auto indexing, directory listings
   -cache int
-        simple lru document cache for n items. Disabled when zero.
+        simple fifo document cache for n items. Disabled when zero.
   -cert string
         TLS chain of one or more certificates
   -debug

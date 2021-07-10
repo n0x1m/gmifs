@@ -26,6 +26,7 @@ func (c *cache) Read(key string) ([]byte, string, bool) {
 
 func (c *cache) housekeeping(key string) {
 	// we enter locked and can modify
+	// check if we need to free a slot.
 	if len(c.tracker) >= c.size {
 		overflow := c.index
 		expired := c.tracker[overflow]
@@ -33,9 +34,10 @@ func (c *cache) housekeeping(key string) {
 		delete(c.mimeTypes, expired)
 		delete(c.tracker, overflow)
 	}
+
 	c.tracker[c.index] = key
 	c.index++
-	c.index = c.index % (c.size)
+	c.index %= c.size
 }
 
 func (c *cache) Write(key string, mimeType string, doc []byte) {
@@ -43,6 +45,7 @@ func (c *cache) Write(key string, mimeType string, doc []byte) {
 	if c.size <= 0 {
 		return
 	}
+
 	c.Lock()
 	c.housekeeping(key)
 	c.documents[key] = doc
@@ -65,6 +68,7 @@ func (c *cache) middleware(next gemini.Handler) gemini.Handler {
 		if body, mimeType, hit := c.Read(key); hit {
 			w.WriteHeader(gemini.StatusSuccess, mimeType)
 			w.Write(body)
+
 			return
 		}
 
@@ -75,6 +79,7 @@ func (c *cache) middleware(next gemini.Handler) gemini.Handler {
 		if ri.HasHeader() && ri.Code == gemini.StatusSuccess {
 			c.Write(key, ri.Meta, ri.Body.Bytes())
 		}
+
 		ri.Flush()
 	}
 	return gemini.HandlerFunc(fn)

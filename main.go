@@ -41,12 +41,12 @@ func main() {
 	flag.StringVar(&addr, "addr", defaultAddress, "address to listen on, e.g. 127.0.0.1:1965")
 	flag.IntVar(&maxconns, "max-conns", defaultMaxConns, "maximum number of concurrently open connections")
 	flag.IntVar(&timeout, "timeout", defaultTimeout, "connection timeout in seconds")
-	flag.IntVar(&cache, "cache", defaultCacheObjects, "simple lru document cache for n items. Disabled when zero.")
+	flag.IntVar(&cache, "cache", defaultCacheObjects, "simple fifo document cache for n items. Disabled when zero.")
 	flag.StringVar(&root, "root", defaultRootPath, "server root directory to serve from")
 	flag.StringVar(&host, "host", defaultHost, "hostname for sni and x509 CN when using temporary self-signed certs")
 	flag.StringVar(&crt, "cert", defaultCertPath, "TLS chain of one or more certificates")
 	flag.StringVar(&key, "key", defaultKeyPath, "TLS private key")
-	flag.IntVar(&autocertvalidity, "autocertvalidity", defaultAutoCertValidity, "valid days when using a gmifs auto provisioned self-signed certificate")
+	flag.IntVar(&autocertvalidity, "autocertvalidity", defaultAutoCertValidity, "valid days when using a gmifs provisioned certificate")
 	flag.StringVar(&logs, "logs", defaultLogsDir, "enables file based logging and specifies the directory")
 	flag.BoolVar(&debug, "debug", defaultDebugMode, "enable verbose logging of the gemini server")
 	flag.BoolVar(&autoindex, "autoindex", defaultAutoIndex, "enables auto indexing, directory listings")
@@ -54,6 +54,7 @@ func main() {
 
 	var err error
 	var flogger, dlogger *log.Logger
+
 	flogger, err = setupLogger(logs, "access.log")
 	if err != nil {
 		log.Fatal(err)

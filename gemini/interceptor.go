@@ -12,7 +12,7 @@ import (
 // Note that the body being written two times and the complete caching of the body in the memory.
 type Interceptor struct {
 	// ResponseWriter is the underlying response writer that is wrapped by Interceptor
-	w ResponseWriter
+	responseWriter ResponseWriter
 
 	// Interceptor is the underlying io.Writer that buffers the response body
 	Body bytes.Buffer
@@ -30,9 +30,10 @@ type Interceptor struct {
 }
 
 // NewInterceptor creates a new Interceptor by wrapping the given response writer.
-func NewInterceptor(w ResponseWriter) (m *Interceptor) {
+func NewInterceptor(responseWriter ResponseWriter) (m *Interceptor) {
 	m = &Interceptor{}
-	m.w = w
+	m.responseWriter = responseWriter
+
 	return
 }
 
@@ -66,10 +67,10 @@ func (m *Interceptor) Flush() {
 
 // FlushBody flushes to the underlying responsewriter.
 func (m *Interceptor) FlushBody() {
-	m.w.Write(m.Body.Bytes())
+	m.responseWriter.Write(m.Body.Bytes())
 }
 
 // FlushHeader writes the header to the underlying ResponseWriter.
 func (m *Interceptor) FlushHeader() {
-	m.w.WriteHeader(m.Code, m.Meta)
+	m.responseWriter.WriteHeader(m.Code, m.Meta)
 }
