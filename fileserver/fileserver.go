@@ -80,6 +80,7 @@ func readFile(filepath string) ([]byte, string, error) {
 		return nil, "", fmt.Errorf("file: %w", err)
 	}
 	defer file.Close()
+
 	data, err := ioutil.ReadAll(file)
 	if err != nil {
 		return nil, "", fmt.Errorf("read: %w", err)
@@ -101,14 +102,15 @@ func listDirectory(fullpath, relpath string) ([]byte, string, error) {
 	}
 
 	var out []byte
-	parent := filepath.Dir(relpath)
+	idx := strings.TrimRight(relpath, "/")
+	parent := filepath.Dir(idx)
 	if relpath != "/" {
-		idx := strings.TrimRight(relpath, "/")
 		out = append(out, []byte(fmt.Sprintf("Index of %s/\n\n", idx))...)
 		out = append(out, []byte(fmt.Sprintf("=> %s ..\n", parent))...)
 	} else {
 		out = append(out, []byte(fmt.Sprintf("Index of %s\n\n", relpath))...)
 	}
+
 	for _, f := range files {
 		if relpath == "/" {
 			out = append(out, []byte(fmt.Sprintf("=> %s\n", f.Name()))...)
