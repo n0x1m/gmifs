@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/n0x1m/gmifs/gemini"
 )
@@ -102,7 +103,8 @@ func listDirectory(fullpath, relpath string) ([]byte, string, error) {
 	var out []byte
 	parent := filepath.Dir(relpath)
 	if relpath != "/" {
-		out = append(out, []byte(fmt.Sprintf("Index of %s/\n\n", relpath))...)
+		idx := strings.TrimRight(relpath, "/")
+		out = append(out, []byte(fmt.Sprintf("Index of %s/\n\n", idx))...)
 		out = append(out, []byte(fmt.Sprintf("=> %s ..\n", parent))...)
 	} else {
 		out = append(out, []byte(fmt.Sprintf("Index of %s\n\n", relpath))...)

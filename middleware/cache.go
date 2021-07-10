@@ -39,6 +39,10 @@ func (c *cache) housekeeping(key string) {
 }
 
 func (c *cache) Write(key string, mimeType string, doc []byte) {
+	// protect against crashes when initialized and chained with zero size.
+	if c.size <= 0 {
+		return
+	}
 	c.Lock()
 	c.housekeeping(key)
 	c.documents[key] = doc

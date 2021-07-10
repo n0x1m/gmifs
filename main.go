@@ -19,34 +19,37 @@ import (
 )
 
 const (
-	defaultAddress  = ":1965"
-	defaultMaxConns = 256
-	defaultTimeout  = 10
-	defaultRootPath = "/var/www/htdocs/gemini"
-	defaultHost     = ""
-	defaultCertPath = ""
-	defaultKeyPath  = ""
-
-	autoCertDaysValid = 7
-	shutdownTimeout   = 10 * time.Second
+	defaultAddress          = ":1965"
+	defaultMaxConns         = 128
+	defaultTimeout          = 5
+	defaultCacheObjects     = 0
+	defaultRootPath         = "public"
+	defaultHost             = "localhost"
+	defaultCertPath         = ""
+	defaultKeyPath          = ""
+	defaultLogsDir          = ""
+	defaultDebugMode        = false
+	defaultAutoIndex        = false
+	defaultAutoCertValidity = 1
 )
 
 func main() {
 	var addr, root, crt, key, host, logs string
-	var maxconns, timeout, cache int
+	var maxconns, timeout, cache, autocertvalidity int
 	var debug, autoindex bool
 
-	flag.StringVar(&addr, "addr", defaultAddress, "address to listen on. E.g. 127.0.0.1:1965")
+	flag.StringVar(&addr, "addr", defaultAddress, "address to listen on, e.g. 127.0.0.1:1965")
 	flag.IntVar(&maxconns, "max-conns", defaultMaxConns, "maximum number of concurrently open connections")
 	flag.IntVar(&timeout, "timeout", defaultTimeout, "connection timeout in seconds")
-	flag.IntVar(&cache, "cache", 0, "simple lru document cache for n items. Disabled when zero.")
+	flag.IntVar(&cache, "cache", defaultCacheObjects, "simple lru document cache for n items. Disabled when zero.")
 	flag.StringVar(&root, "root", defaultRootPath, "server root directory to serve from")
-	flag.StringVar(&host, "host", defaultHost, "hostname / x509 Common Name when using temporary self-signed certs")
+	flag.StringVar(&host, "host", defaultHost, "hostname for sni and x509 CN when using temporary self-signed certs")
 	flag.StringVar(&crt, "cert", defaultCertPath, "TLS chain of one or more certificates")
 	flag.StringVar(&key, "key", defaultKeyPath, "TLS private key")
-	flag.StringVar(&logs, "logs", "", "directory for file based logging")
-	flag.BoolVar(&debug, "debug", false, "enable verbose logging of the gemini server")
-	flag.BoolVar(&autoindex, "autoindex", false, "enables or disables the directory listing output")
+	flag.IntVar(&autocertvalidity, "autocertvalidity", defaultAutoCertValidity, "valid days when using a gmifs auto provisioned self-signed certificate")
+	flag.StringVar(&logs, "logs", defaultLogsDir, "enables file based logging and specifies the directory")
+	flag.BoolVar(&debug, "debug", defaultDebugMode, "enable verbose logging of the gemini server")
+	flag.BoolVar(&autoindex, "autoindex", defaultAutoIndex, "enables auto indexing, directory listings")
 	flag.Parse()
 
 	var err error
@@ -80,7 +83,7 @@ func main() {
 	server := &gemini.Server{
 		Addr:            addr,
 		Hostname:        host,
-		TLSConfigLoader: setupCertificate(crt, key, host),
+		TLSConfigLoader: setupCertificate(crt, key, host, autocertvalidity),
 		Handler:         mux,
 		MaxOpenConns:    maxconns,
 		ReadTimeout:     time.Duration(timeout) * time.Second,
@@ -101,7 +104,7 @@ func main() {
 	signal.Notify(stop, os.Interrupt)
 	<-stop
 
-	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 	if err := server.Shutdown(ctx); err != nil {
 		cancel()
 		log.Fatalf("ListenAndServe shutdown with error: %v", err)
@@ -111,7 +114,7 @@ func main() {
 	cancel()
 }
 
-func setupCertificate(crt, key, host string) func() (*tls.Config, error) {
+func setupCertificate(crt, key, host string, validdays int) func() (*tls.Config, error) {
 	return func() (*tls.Config, error) {
 		if crt != "" && key != "" {
 			cert, err := tls.LoadX509KeyPair(crt, key)
@@ -121,8 +124,9 @@ func setupCertificate(crt, key, host string) func() (*tls.Config, error) {
 			return gemini.TLSConfig(host, cert), nil
 		}
 
-		log.Println("generating self-signed temporary certificate")
-		cert, err := gemini.GenX509KeyPair(host, autoCertDaysValid)
+		// only used for testing
+		log.Printf("generating a self-signed temporary certificate, valid for %d days\n", validdays)
+		cert, err := gemini.GenX509KeyPair(host, validdays)
 		if err != nil {
 			return nil, fmt.Errorf("generate x509 keypair: %w", err)
 		}
