@@ -19,12 +19,13 @@ func Logger(log *log.Logger, prefix string) func(gemini.Handler) gemini.Handler 
 			ri.Flush()
 
 			ip := strings.Split(r.RemoteAddr, ":")[0]
-			fmt.Fprintf(log.Writer(), "%s%s - - [%s] \"%s\" %d - %v\n",
+			fmt.Fprintf(log.Writer(), "%s%s - - [%s] \"%s\" %d %d - %v\n",
 				prefix,
 				ip,
 				t.Format("02/Jan/2006:15:04:05 -0700"),
 				r.URL.Path,
 				ri.Code,
+				ri.Body.Len(),
 				time.Since(t),
 			)
 		}
