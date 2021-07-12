@@ -1,3 +1,5 @@
+// Package gemini implements the protocol for use with a file server, certificate generation and
+// facilities for interceptors and middlewares.
 package gemini
 
 import (

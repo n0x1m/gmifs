@@ -1,3 +1,5 @@
+// Package fileserver implements a gemini handler function to serve files with optional auto
+// indexing for directory listings.
 package fileserver
 
 import (
