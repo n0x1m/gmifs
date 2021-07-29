@@ -152,7 +152,7 @@ func setupLogger(dir, filename string) (*log.Logger, error) {
 
 			for {
 				<-hup
-				logger.Println("rotating log file after SIGHUP")
+				// logger.Println("rotating log file after SIGHUP")
 				_, err := setupFileLogging(logger, logpath)
 				if err != nil {
 					log.Fatalf("failed to rotate log file: %v", err)

@@ -1,3 +1,6 @@
+[![Go Report Card](https://goreportcard.com/badge/github.com/n0x1m/gmifs)](https://goreportcard.com/report/github.com/n0x1m/gmifs)
+[![GoDoc](https://godoc.org/github.com/n0x1m/gmifs?status.svg)](https://godoc.org/github.com/n0x1m/gmifs)
+
 # gmifs
 
 Gemini File Server, short gmifs, is intended to be minimal and serve static files. It is used
